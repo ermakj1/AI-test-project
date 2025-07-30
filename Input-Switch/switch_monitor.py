@@ -1,17 +1,38 @@
+def log_switch_event(message: str):
+    """
+    Appends a log message with a timestamp to monitor_switch.log
+    """
+    from datetime import datetime
+    with open("monitor_switch.log", "a") as f:
+        f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
+def list_connected_keyboards() -> list:
+    """
+    Returns a list of all connected keyboard names (Windows only).
+    """
+    os_name = platform.system()
+    if os_name == "Windows":
+        try:
+            result = subprocess.run(["wmic", "path", "Win32_Keyboard", "get", "Name"], capture_output=True, text=True)
+            lines = result.stdout.splitlines()
+            # Remove header and empty lines
+            keyboards = [line.strip() for line in lines[1:] if line.strip()]
+            return keyboards
+        except Exception as e:
+            print(f"Error listing keyboards: {e}")
+            return []
+    else:
+        return []
 import time
 
-def is_keyboard_connected(keyboard_name: str) -> bool:
+def any_keyboard_connected() -> bool:
     """
-    Checks if a keyboard with the given name is connected.
-    On Windows, uses 'wmic' to list USB devices. On macOS, uses 'system_profiler'.
-    :param keyboard_name: The name (or substring) of the keyboard to detect.
-    :return: True if the keyboard is connected, False otherwise.
+    Returns True if any keyboard is connected (Windows only).
     """
     os_name = platform.system()
     try:
         if os_name == "Windows":
-            result = subprocess.run(["wmic", "path", "Win32_Keyboard", "get", "Name"], capture_output=True, text=True)
-            return keyboard_name.lower() in result.stdout.lower()
+            keyboards = list_connected_keyboards()
+            return len(keyboards) > 0
         else:
             print(f"Keyboard detection is only supported on Windows. Current OS: {os_name}")
             return False
@@ -19,26 +40,39 @@ def is_keyboard_connected(keyboard_name: str) -> bool:
         print(f"Error detecting keyboard: {e}")
         return False
 
-def monitor_keyboard_and_switch(keyboard_name: str, poll_interval: float = 2.0):
+def monitor_keyboard_and_switch(poll_interval: float = 2.0):
     """
-    Monitors for the presence of a keyboard and switches monitor inputs accordingly.
-    When the keyboard is plugged in, sets monitors to DisplayPort. When unplugged, sets to USB-C.
-    :param keyboard_name: The name (or substring) of the keyboard to detect.
+    Monitors for the presence of any keyboard and switches monitor inputs accordingly.
+    When any keyboard is plugged in, sets monitors to DisplayPort. When none are attached, sets to USB-C.
     :param poll_interval: How often to check (in seconds).
     """
-    print(f"Monitoring for keyboard: '{keyboard_name}' (polling every {poll_interval} seconds)...")
+    print(f"Monitoring for any keyboard (polling every {poll_interval} seconds)...")
     last_connected = None
+    last_monitor_inputs = {1: 'Unknown', 2: 'Unknown'}
     try:
         while True:
-            connected = is_keyboard_connected(keyboard_name)
+            connected = any_keyboard_connected()
             if last_connected is None:
                 last_connected = connected
             if connected and not last_connected:
-                print(f"Keyboard '{keyboard_name}' detected. Switching monitors to DisplayPort.")
+                print("Keyboard detected.")
                 set_both_monitors_to_displayport()
+                last_monitor_inputs[1] = 'DisplayPort'
+                last_monitor_inputs[2] = 'DisplayPort'
+                log_switch_event("Keyboard detected. Switched both monitors to DisplayPort.")
             elif not connected and last_connected:
-                print(f"Keyboard '{keyboard_name}' not detected. Switching monitors to USB-C.")
+                print("No keyboard detected.")
                 set_both_monitors_to_usbc()
+                last_monitor_inputs[1] = 'USB-C'
+                last_monitor_inputs[2] = 'USB-C'
+                log_switch_event("No keyboard detected. Switched both monitors to USB-C.")
+            else:
+                # Print status even if nothing changed
+                if connected:
+                    print("Keyboard detected.")
+                else:
+                    print("No keyboard detected.")
+            print(f"Monitor 1 last input: {last_monitor_inputs[1]}, Monitor 2 last input: {last_monitor_inputs[2]}")
             last_connected = connected
             time.sleep(poll_interval)
     except KeyboardInterrupt:
@@ -115,5 +149,4 @@ def toggle_monitor_input(display_num: int):
     set_monitor_input(display_num, '15')
 
 if __name__ == "__main__":
-    # To use: replace 'Your Keyboard Name' with a unique substring of your keyboard's name as shown in device manager or system_profiler
-    monitor_keyboard_and_switch('Your Keyboard Name')
+    monitor_keyboard_and_switch()
